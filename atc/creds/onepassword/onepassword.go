@@ -1,9 +1,10 @@
 package onepassword
 
 import (
-	"context"
+	"strings"
 	"time"
 
+	"github.com/1Password/connect-sdk-go/onepassword"
 	"github.com/concourse/concourse/atc/creds"
 )
 
@@ -13,30 +14,45 @@ type OnePassword struct {
 }
 
 func (op *OnePassword) NewSecretLookupPaths(teamName string, pipelineName string, allowRootPath bool) []creds.SecretLookupPath {
-	prefix := "op://" + op.VaultName
+	return []creds.SecretLookupPath{creds.NewSecretLookupWithPrefix("")}
+}
 
-	//if !allowRootPath {
-	//	return []creds.SecretLookupPath{}
-	//}
-
-	return []creds.SecretLookupPath{creds.NewSecretLookupWithPrefix(prefix + "/")}
+func findFieldByName(item *onepassword.Item, fieldName string) *onepassword.ItemField {
+	for _, field := range item.Fields {
+		if field.Label == fieldName || field.ID == fieldName {
+			return field
+		}
+	}
+	return nil
 }
 
 func (op OnePassword) Get(secretPath string) (any, *time.Time, bool, error) {
 	print("1Password fetch: " + secretPath + "\n")
 
-	secret, err := op.Manager.Client.Secrets().Resolve(
-		context.Background(),
-		secretPath,
+	secretParts := strings.Split(secretPath, "/")
+
+	fieldName := secretParts[len(secretParts)-1]
+
+	secretName := strings.Join(secretParts[:len(secretParts)-1], "/")
+
+	secret, err := op.Manager.Client.GetItem(
+		secretName,
+		op.VaultName,
 	)
 
 	if err != nil {
-		if err.Error() == "error: error resolving secret reference: no item matched the secret reference query" {
+		if err.Error() == "idk" {
 			return nil, nil, false, nil
 		} else {
 			return nil, nil, false, err
 		}
 	}
 
-	return secret, nil, true, nil
+	field := findFieldByName(secret, fieldName)
+
+	if field == nil {
+		return nil, nil, false, nil
+	}
+
+	return field.Value, nil, true, nil
 }

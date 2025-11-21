@@ -1,29 +1,25 @@
 package onepassword
 
 import (
-	"context"
 	"fmt"
 
 	"code.cloudfoundry.org/lager/v3"
-	"github.com/1password/onepassword-sdk-go"
+	"github.com/1Password/connect-sdk-go/connect"
 	"github.com/concourse/concourse/atc/creds"
 	"github.com/go-viper/mapstructure/v2"
 )
 
 type OnePasswordManager struct {
-	Token     string `long:"token" description:"1Password Service Account Token" required:"false"`
-	VaultName string `long:"vault-name" description:"Vault name to use when looking up secrets." default:"Infrastructure"`
-	Client    *onepassword.Client
+	ConnectHost  string `long:"connect-host" description:"1Password Connect Host" required:"false"`
+	ConnectToken string `long:"connect-token" description:"1Password Connect Token" required:"false"`
+	VaultName    string `long:"vault-name" description:"Vault name to use when looking up secrets." default:"Infrastructure"`
+	Client       connect.Client
 }
 
 func (manager *OnePasswordManager) Init(log lager.Logger) error {
 	var err error
 
-	manager.Client, err = onepassword.NewClient(
-		context.TODO(),
-		onepassword.WithServiceAccountToken(manager.Token),
-		onepassword.WithIntegrationInfo("Concourse CI Credential Provider", "v1.0.0"),
-	)
+	manager.Client = connect.NewClient(manager.ConnectHost, manager.ConnectToken)
 
 	return err
 }
@@ -43,7 +39,7 @@ func (manager *OnePasswordManager) Config(config map[string]any) error {
 }
 
 func (manager *OnePasswordManager) IsConfigured() bool {
-	return manager.Token != ""
+	return manager.ConnectHost != "" && manager.ConnectToken != ""
 }
 
 func (manager *OnePasswordManager) Health() (*creds.HealthResponse, error) {
@@ -51,7 +47,7 @@ func (manager *OnePasswordManager) Health() (*creds.HealthResponse, error) {
 		Method: "Vault List",
 	}
 
-	vaults, err := manager.Client.Vaults().List(context.Background())
+	vaults, err := manager.Client.GetVaults()
 
 	if err != nil {
 		health.Error = err.Error()
@@ -72,16 +68,11 @@ func (manager *OnePasswordManager) NewSecretsFactory(logger lager.Logger) (creds
 }
 
 func (manager *OnePasswordManager) Validate() error {
-	vaults, err := manager.Client.Vaults().List(context.Background())
+	_, err := manager.Client.GetVaultByTitle(manager.VaultName)
+
 	if err != nil {
 		return err
 	}
 
-	for _, v := range vaults {
-		if v.Title == manager.VaultName {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("vault %s not found", manager.VaultName)
+	return nil
 }
